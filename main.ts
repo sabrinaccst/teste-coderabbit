@@ -1,132 +1,193 @@
-function solve(firstNumber: number, secondNumber: number, operator: string): number {
-    const operations: { [index: string]: Function } = {
-        "+": () => firstNumber + secondNumber,
-        "-": () => firstNumber - secondNumber,
-        "*": () => firstNumber * secondNumber,
-        "/": () => firstNumber / secondNumber
-    };
+type Operation = {
+    priority: number,
+    solve: (first: number, second: number) => number
+};
 
-    return operations[operator]();
+interface ExpressionParserInterface {
+    parse(expression: string): Array<string>
 }
 
+class ExpressionParser implements ExpressionParserInterface {
+    #operators: Set<string> = new Set(["+", "-", "*", "/"]);
 
-function solveSimplifiedExpr(output: Array<string>, operators: Array<string>): void {
-    const secondNumber = Number(output.pop());
-    const firstNumber = Number(output.pop());
+    #parenthesesStack: Array<string>;
+    #expression: Array<string>;
 
-    const operator = operators.pop();
+    #lastToken: string | null;
+    #hasDecimal: boolean;
+    #number: string;
 
-    if (operator == null)
-        throw "Operation Not Supported.";
-
-
-    output.push(solve(firstNumber, secondNumber, operator).toString());
-}
-
-function isDigit(character: string) {
-    return character.charCodeAt(0) >= "0".charCodeAt(0)
-        && character.charCodeAt(0) <= "9".charCodeAt(0);
-}
-
-
-function parseExpression(expression: string) {
-    const operators: Array<string> = ["+", "-", "*", "/"];
-    const expr: Array<string> = [];
-    const parenthesesStack: Array<string> = [];
-
-    let lastToken: string | null = null;
-    let number = "";
-    let hasDecimal = false;
-
-    for (const token of expression.replaceAll(" ", "")) {
-        if (isDigit(token)) {
-            number += token;
-        } else if (token === ".") {
-            if (hasDecimal || !number.length)
-                throw "Número decimal mal formado.";
-            number += token;
-            hasDecimal = true;
-        } else if (token === "(") {
-            parenthesesStack.push(token);
-            expr.push(token);
-            hasDecimal = false;
-        } else if (token === ")") {
-            if (!parenthesesStack.length)
-                throw "Parêntese fechado sem abertura correspondente.";
-            parenthesesStack.pop();
-
-            if (number.length) {
-                expr.push(number);
-                number = "";
-                hasDecimal = false;
-            }
-
-            expr.push(token);
-        } else if (operators.indexOf(token) >= 0) {
-            if (!number.length
-                && token === "-"
-                && (lastToken == null
-                    || operators.indexOf(lastToken) >= 0
-                    || lastToken == "(")) {
-                number += token;
-            } else {
-                if (!number.length)
-                    throw `Operador '${token}' mal posicionado na expressão.`;
-                expr.push(number);
-                number = "";
-                hasDecimal = false;
-                expr.push(token);
-            }
-        } else throw `Caractere inválido na expressão: '${token}'`;
-
-        lastToken = token;
+    #isDigit(token: string) {
+        return token.charCodeAt(0) >= "0".charCodeAt(0)
+            && token.charCodeAt(0) <= "9".charCodeAt(0);
     }
 
-    if (!number.length && (
-        lastToken == null
-        || operators.indexOf(lastToken) >= 0))
-        throw `Operador '${lastToken}' mal posicionado na expressão.`;
+    #isNegativeSignal(token: string) {
+        return !this.#isValidNumber()
+            && token === "-"
+            && (this.#lastToken == null
+                || this.#lastToken == "("
+                || this.#isOperator(this.#lastToken));
+    }
 
-    if (parenthesesStack.length)
-        throw "Parêntese aberto sem fechamento correspondente.";
+    #isOperator(token: string) {
+        return this.#operators.has(token);
+    }
 
-    if (number.length)
-        expr.push(number);
+    #isValidNumber() {
+        return this.#number.length > 0;
+    }
 
-    return expr;
-}
+    #addNumberToExpression() {
+        this.#expression.push(this.#number);
+        this.#hasDecimal = false;
+        this.#number = "";
+    }
 
-function solveExpression(expression: string) {
-    const priorities: { [index: string]: number } = {
-        "+": 1,
-        "-": 1,
-        "*": 2,
-        "/": 2
-    };
+    #addDecimalPoint() {
+        if (this.#hasDecimal || !this.#isValidNumber())
+            throw "Número decimal mal formado.";
 
-    const operators: Array<string> = [];
-    const output: Array<string> = [];
+        this.#hasDecimal = true;
+        this.#number += ".";
+    }
 
-    for (const token of parseExpression(expression)) {
-        if (token === "(") {
-            operators.push(token);
-        } else if (token === ")") {
-            while (operators[operators.length - 1] !== "(")
-                solveSimplifiedExpr(output, operators);
-            operators.pop();
-        } else if (priorities.hasOwnProperty(token)) {
-            while (operators.length
-                && operators[operators.length - 1] != "("
-                && priorities[operators[operators.length - 1]] >= priorities[token])
-                solveSimplifiedExpr(output, operators);
-            operators.push(token);
+    #openParentheses() {
+        this.#parenthesesStack.push("(");
+        this.#expression.push("(");
+        this.#hasDecimal = false;
+    }
+
+    #closeParentheses() {
+        if (!this.#parenthesesStack.length)
+            throw "Parêntese fechado sem abertura correspondente.";
+        this.#parenthesesStack.pop();
+
+        if (this.#isValidNumber())
+            this.#addNumberToExpression();
+
+        this.#expression.push(")");
+    }
+
+    #handleOperator(operator: string) {
+        if (this.#isNegativeSignal(operator)) {
+            this.#number += operator;
         } else {
-            output.push(token);
+            if (!this.#isValidNumber())
+                throw `Operador '${operator}' mal posicionado na expressão.`;
+            this.#addNumberToExpression();
+            this.#expression.push(operator);
         }
     }
 
-    while (operators.length)
-        solveSimplifiedExpr(output, operators);
+    parse(expression: string): Array<string> {
+        this.#parenthesesStack = [];
+        this.#expression = [];
 
-    return Number(output.pop());
+        this.#hasDecimal = false;
+        this.#lastToken = null;
+        this.#number = "";
+
+        for (const token of expression.replaceAll(" ", "")) {
+            if (this.#isDigit(token)) {
+                this.#number += token;
+            } else if (token === ".") {
+                this.#addDecimalPoint();
+            } else if (token === "(") {
+                this.#openParentheses();
+            } else if (token === ")") {
+                this.#closeParentheses();
+            } else if (this.#isOperator(token)) {
+                this.#handleOperator(token);
+            } else throw `Caractere inválido na expressão: '${token}'`;
+
+            this.#lastToken = token;
+        }
+
+        if (!this.#isValidNumber() && (
+            this.#lastToken == null
+            || this.#isOperator(this.#lastToken)))
+            throw `Operador '${this.#lastToken}' mal posicionado na expressão.`;
+
+        if (this.#isValidNumber())
+            this.#addNumberToExpression();
+
+        if (this.#parenthesesStack.length)
+            throw "Parêntese aberto sem fechamento correspondente.";
+
+
+        return this.#expression;
+    }
 }
+
+class ExpressionSolver {
+    #operations: { [index: string]: Operation } = {
+        "+": { priority: 1, solve: (first: number, second: number) => first + second },
+        "-": { priority: 1, solve: (first: number, second: number) => first - second },
+        "*": { priority: 2, solve: (first: number, second: number) => first * second },
+        "/": { priority: 2, solve: (first: number, second: number) => first / second }
+    };
+    #parser: ExpressionParserInterface;
+    #operators: Array<string>;
+    #output: Array<string>;
+
+    constructor(expressionParse: ExpressionParserInterface) {
+        this.#parser = expressionParse;
+    }
+
+    #solve() {
+        const secondNumber = Number(this.#output.pop());
+        const firstNumber = Number(this.#output.pop());
+        const operator = this.#operators.pop();
+
+        if (operator == null || !this.#operations.hasOwnProperty(operator))
+            throw "Operation Not Supported.";
+
+        const result = this.#operations[operator].solve(firstNumber, secondNumber);
+        this.#output.push(result.toString());
+    }
+
+    #lastOperator() {
+        return this.#operators[this.#operators.length - 1];
+    }
+
+    #isOperator(token: string) {
+        return this.#operations.hasOwnProperty(token);
+    }
+
+
+    solve(expression: string): number {
+        this.#operators = [];
+        this.#output = [];
+
+        for (const token of this.#parser.parse(expression)) {
+            if (token === "(") {
+                this.#operators.push(token);
+            } else if (token === ")") {
+                while (this.#lastOperator() !== "(")
+                    this.#solve();
+                this.#operators.pop();
+            } else if (this.#isOperator(token)) {
+                while (this.#operators.length
+                    && this.#lastOperator() != "("
+                    && this.#operations[this.#lastOperator()].priority >= this.#operations[token].priority)
+                    this.#solve();
+                this.#operators.push(token);
+            } else {
+                this.#output.push(token);
+            }
+        }
+
+        while (this.#operators.length)
+            this.#solve();
+
+        return Number(this.#output.pop());
+    }
+}
+
+
+const handler = new ExpressionParser();
+const solver = new ExpressionSolver(handler);
+
+// console.log(solver.solve("1 + 2 * 3"))
+console.log(solver.solve("1 + 2 * 3"))
